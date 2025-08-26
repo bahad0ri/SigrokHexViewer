@@ -60,7 +60,7 @@ void SigrokWorker::start() {
     // Explicitly initialize the selected driver before attempting to scan
     // for attached devices, otherwise sr_driver_scan() will fail at runtime
     // with "Driver not initialized".
-    if (sr_driver_init(drv, sr_ctx_) != SR_OK) {
+    if (sr_driver_init(sr_ctx_, drv) != SR_OK) {
         emit logMsg("sr_driver_init failed.");
         sr_exit(ctx);
         sr_ctx_ = nullptr;
