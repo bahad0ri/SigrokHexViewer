@@ -10,10 +10,22 @@
 
 #include <glib.h>
 
-#include <glib.h>
+/*
+ * Libsigrokdecode is optional.  The library headers define SRD_HEADER when
+ * available which enables the CAN decoding paths below.  To simplify
+ * building on systems where libsigrokdecode isn't installed (or where the
+ * API has changed), the code defaults to building without it unless the
+ * build system explicitly defines ENABLE_SRD.
+ */
+#ifndef ENABLE_SRD
+#define NO_SRD
+#endif
+
 extern "C" {
 #include <libsigrok/libsigrok.h>
+#ifndef NO_SRD
 #include <libsigrokdecode/libsigrokdecode.h>
+#endif
 }
 
 struct CanFrame {

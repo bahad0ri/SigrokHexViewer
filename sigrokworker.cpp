@@ -3,10 +3,6 @@
 #include <QDebug>
 #include <QThread>
 
-#ifdef NO_SRD
-#undef SRD_HEADER
-#endif
-
 SigrokWorker::SigrokWorker(QObject *parent) : QObject(parent) {}
 SigrokWorker::~SigrokWorker() { stop(); }
 
@@ -30,14 +26,15 @@ void SigrokWorker::start() {
     }
     sr_ctx_ = ctx;
 
-    // Driver list (new API)
-    GSList *drivers = sr_driver_list(sr_ctx_);
+    // Driver list (libsigrok >=0.6 uses a NULL terminated array)
+    const struct sr_dev_driver **drivers = sr_driver_list(sr_ctx_);
     const struct sr_dev_driver *drv = nullptr;
-    for (GSList *l = drivers; l; l = l->next) {
-        auto *d = static_cast<const struct sr_dev_driver*>(l->data);
-        if (driverName_ == QString::fromUtf8(d->name)) { drv = d; break; }
+    if (drivers) {
+        for (const struct sr_dev_driver **d = drivers; *d; ++d) {
+            if (driverName_ == QString::fromUtf8((*d)->name)) { drv = *d; break; }
+        }
     }
-    g_slist_free(drivers);
+    g_free(drivers);
     if (!drv) {
         emit logMsg("Driver not found: " + driverName_);
         sr_exit(ctx);
@@ -47,8 +44,8 @@ void SigrokWorker::start() {
     }
 
     // Scan
-    GSList *devs = nullptr;
-    if (sr_driver_scan(drv, &devs, nullptr) != SR_OK || !devs) {
+    GSList *devs = sr_driver_scan(const_cast<struct sr_dev_driver*>(drv), nullptr);
+    if (!devs) {
         emit logMsg("No devices found for driver.");
         sr_exit(ctx);
         sr_ctx_ = nullptr;
@@ -56,11 +53,10 @@ void SigrokWorker::start() {
         return;
     }
     sdi_ = static_cast<struct sr_dev_inst*>(devs->data);
+    g_slist_free(devs);
 
     // Open
-    GSList *sdi_list = nullptr;
-    sdi_list = g_slist_append(sdi_list, sdi_);
-    if (sr_dev_open_multiple(sdi_list) != SR_OK) {
+    if (sr_dev_open(sdi_) != SR_OK) {
         emit logMsg("sr_dev_open failed.");
         sr_exit(ctx);
         sr_ctx_ = nullptr;
@@ -70,13 +66,14 @@ void SigrokWorker::start() {
 
     // Samplerate
     GVariant *g_sr = g_variant_new_uint64(samplerate_);
-    if (sr_config_set(sdi_, SR_CONF_SAMPLERATE, g_sr) != SR_OK) {
+    if (sr_config_set(sdi_, nullptr, SR_CONF_SAMPLERATE, g_sr) != SR_OK) {
         emit logMsg("Failed to set samplerate.");
     }
 
     // Enable channels
     activeLogicIdx_.clear();
-    for (GSList *l = sdi_->channels; l; l = l->next) {
+    GSList *channels = sr_dev_inst_channels_get(sdi_);
+    for (GSList *l = channels; l; l = l->next) {
         auto *ch = static_cast<struct sr_channel*>(l->data);
         const QString name = QString::fromUtf8(ch->name ? ch->name : "");
         bool enable = enabledChs_.contains(name);
@@ -85,16 +82,17 @@ void SigrokWorker::start() {
     }
     if (activeLogicIdx_.isEmpty()) {
         emit logMsg("No channels enabled, enabling CH0 fallback.");
-        for (GSList *l = sdi_->channels; l; l = l->next) {
+        for (GSList *l = channels; l; l = l->next) {
             auto *ch = static_cast<struct sr_channel*>(l->data);
             if (QString::fromUtf8(ch->name ? ch->name : "") == "CH0") {
                 ch->enabled = TRUE; activeLogicIdx_.append(ch->index); break;
             }
         }
     }
+    g_slist_free(channels);
 
     // Session
-    if (sr_session_new(&sr_sess_) != SR_OK) {
+    if (sr_session_new(sr_ctx_, &sr_sess_) != SR_OK) {
         emit logMsg("sr_session_new failed.");
         sr_dev_close(sdi_);
         sr_exit(ctx);
@@ -112,7 +110,7 @@ void SigrokWorker::start() {
 
     // Limit samples
     GVariant *g_nsamp = g_variant_new_uint64(limitSamples_);
-    if (sr_session_config_set(sr_sess_, SR_CONF_LIMIT_SAMPLES, g_nsamp) != SR_OK) {
+    if (sr_config_set(sdi_, nullptr, SR_CONF_LIMIT_SAMPLES, g_nsamp) != SR_OK) {
         emit logMsg("Failed to set LIMIT_SAMPLES (it might still work).");
     }
 
@@ -140,7 +138,7 @@ void SigrokWorker::start() {
 
     // Cleanup
     sr_session_stop(sr_sess_);
-    sr_session_datafeed_callback_remove(sr_sess_, &SigrokWorker::datafeedCb, this);
+    sr_session_datafeed_callback_remove_all(sr_sess_);
     sr_session_dev_remove(sr_sess_, sdi_);
     sr_session_destroy(sr_sess_);
     sr_dev_close(sdi_);
