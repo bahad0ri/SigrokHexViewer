@@ -27,23 +27,27 @@ void SigrokWorker::start() {
     }
     sr_ctx_ = ctx;
 
-    using DriverListType = decltype(sr_driver_list(static_cast<sr_context*>(nullptr)));
-    DriverListType drivers = sr_driver_list(sr_ctx_);
-    struct sr_dev_driver *drv = nullptr;
-    if (drivers) {
-        if constexpr (std::is_same_v<DriverListType, GSList*>) {
-            for (GSList *l = drivers; l; l = l->next) {
+    auto drivers = sr_driver_list(sr_ctx_);
+
+    auto findDriver = [&](auto list) -> struct sr_dev_driver* {
+        using ListT = decltype(list);
+        struct sr_dev_driver *found = nullptr;
+        if constexpr (std::is_same_v<ListT, GSList*>) {
+            for (GSList *l = list; l; l = l->next) {
                 auto *d = static_cast<struct sr_dev_driver*>(l->data);
-                if (driverName_ == QString::fromUtf8(d->name)) { drv = d; break; }
+                if (driverName_ == QString::fromUtf8(d->name)) { found = d; break; }
             }
-            g_slist_free(drivers);
+            g_slist_free(list);
         } else {
-            for (DriverListType d = drivers; *d; ++d) {
-                if (driverName_ == QString::fromUtf8((*d)->name)) { drv = *d; break; }
+            for (ListT d = list; *d; ++d) {
+                if (driverName_ == QString::fromUtf8((*d)->name)) { found = *d; break; }
             }
-            g_free(drivers);
+            g_free(list);
         }
-    }
+        return found;
+    };
+
+    struct sr_dev_driver *drv = findDriver(drivers);
     if (!drv) {
         emit logMsg("Driver not found: " + driverName_);
         sr_exit(ctx);
