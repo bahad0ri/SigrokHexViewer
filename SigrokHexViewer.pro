@@ -23,7 +23,8 @@ LIBS += -L$$MSYS2_PREFIX/lib \
         -lsigrok \
         -lglib-2.0 -lgobject-2.0 \
         -lusb-1.0 -lsetupapi -lws2_32 \
-        -lzip -lz -lwinpthread
+        -lzip -lz -lwinpthread \
+        -lmingw32 -lmingwex -lmingwthrd
 
 # Enable libsigrokdecode by defining ENABLE_SRD in your build.
 contains(DEFINES, ENABLE_SRD) {
