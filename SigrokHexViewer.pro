@@ -13,12 +13,14 @@ INCLUDEPATH += C:/msys64/mingw64/lib/glib-2.0/include
 
 LIBS += -LC:/msys64/mingw64/lib \
         -lsigrok \
-        -lsigrokdecode \
         -lglib-2.0 -lgobject-2.0 \
         -lusb-1.0 -lsetupapi -lws2_32 \
         -lzip -lz -lwinpthread
 
-DEFINES += SRD_HEADER
+# Enable libsigrokdecode by defining ENABLE_SRD in your build.
+contains(DEFINES, ENABLE_SRD) {
+    LIBS += -lsigrokdecode
+}
 
 SOURCES += \
     main.cpp \

@@ -27,10 +27,10 @@ void SigrokWorker::start() {
     sr_ctx_ = ctx;
 
     // Driver list (libsigrok >=0.6 uses a NULL terminated array)
-    const struct sr_dev_driver **drivers = sr_driver_list(sr_ctx_);
-    const struct sr_dev_driver *drv = nullptr;
+    struct sr_dev_driver **drivers = sr_driver_list(sr_ctx_);
+    struct sr_dev_driver *drv = nullptr;
     if (drivers) {
-        for (const struct sr_dev_driver **d = drivers; *d; ++d) {
+        for (struct sr_dev_driver **d = drivers; *d; ++d) {
             if (driverName_ == QString::fromUtf8((*d)->name)) { drv = *d; break; }
         }
     }
@@ -117,7 +117,7 @@ void SigrokWorker::start() {
     // Callback
     sr_session_datafeed_callback_add(sr_sess_, &SigrokWorker::datafeedCb, this);
 
-#ifdef SRD_HEADER
+#ifndef NO_SRD
     srdInitIfNeeded();
 #endif
 
@@ -132,7 +132,7 @@ void SigrokWorker::start() {
         return;
     }
 
-    while (!stopFlag_.load() && sr_session_is_running(sr_sess_)) {
+    while (!stopFlag_.loadRelaxed() && sr_session_is_running(sr_sess_)) {
         QThread::msleep(10);
     }
 
@@ -151,7 +151,7 @@ void SigrokWorker::start() {
     emit finished(0);
 }
 
-void SigrokWorker::stop() { stopFlag_.store(1); }
+void SigrokWorker::stop() { stopFlag_.storeRelaxed(1); }
 
 void SigrokWorker::datafeedCb(const struct sr_dev_inst*,
                               const struct sr_datafeed_packet *packet, void *cb_data)
@@ -166,7 +166,7 @@ void SigrokWorker::datafeedCb(const struct sr_dev_inst*,
         break;
     }
     case SR_DF_END:
-        self->stopFlag_.store(1);
+        self->stopFlag_.storeRelaxed(1);
         break;
     default:
         break;
@@ -183,7 +183,7 @@ void SigrokWorker::handleLogicPacket(const struct sr_datafeed_logic *logic) {
         return;
     }
 
-#ifdef SRD_HEADER
+#ifndef NO_SRD
     if (canMode_) {
         srdFeed(logic);
     }
@@ -211,7 +211,7 @@ void SigrokWorker::handleLogicPacket(const struct sr_datafeed_logic *logic) {
     }
 }
 
-#ifdef SRD_HEADER
+#ifndef NO_SRD
 void SigrokWorker::srdInitIfNeeded() {
     if (!canMode_) return;
     if (srd_init(nullptr) != SRD_OK) {
