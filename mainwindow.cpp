@@ -4,7 +4,6 @@
 #include <QGroupBox>
 #include <QGridLayout>
 #include <QHeaderView>
-#include <QListWidget>
 #include <QLabel>
 #include <QDateTime>
 #include <QThread>
@@ -22,20 +21,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     spinSamples->setRange(1, 1000000000);
     spinSamples->setValue(1000000);
 
-    listChannels = new QListWidget();
-    listChannels->setSelectionMode(QAbstractItemView::NoSelection);
-    for (const auto &ch : allCh()) {
-        auto *it = new QListWidgetItem(ch);
-        it->setCheckState(ch=="CH0" ? Qt::Checked : Qt::Unchecked);
-        listChannels->addItem(it);
-    }
-
-    comboMode = new QComboBox();
-    comboMode->addItem("Raw HEX");
-    comboMode->addItem("CAN Decode");
-    connect(comboMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &MainWindow::onModeChanged);
-
     comboCanRx = new QComboBox();
     comboCanRx->addItems(allCh());
     comboCanRx->setCurrentText("CH0");
@@ -47,7 +32,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     btnStop  = new QPushButton("Stop");
     btnStop->setEnabled(false);
 
-    txtRaw = new QTextEdit(); txtRaw->setReadOnly(true);
     txtLog = new QTextEdit(); txtLog->setReadOnly(true);
 
     tblCan = new QTableWidget(0, 5);
@@ -68,16 +52,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     auto *gbCap = new QGroupBox("Capture");
     auto *capLay = new QGridLayout();
-    capLay->addWidget(new QLabel("Mode:"),0,0);
-    capLay->addWidget(comboMode,0,1);
-    capLay->addWidget(new QLabel("Channels (Raw HEX):"),1,0,1,2);
-    capLay->addWidget(listChannels,2,0,1,2);
-    capLay->addWidget(new QLabel("CAN RX:"),3,0);
-    capLay->addWidget(comboCanRx,3,1);
-    capLay->addWidget(new QLabel("Nominal bitrate:"),4,0);
-    capLay->addWidget(editCanBitrate,4,1);
-    capLay->addWidget(new QLabel("Sample point (%):"),5,0);
-    capLay->addWidget(editSamplePoint,5,1);
+    capLay->addWidget(new QLabel("CAN RX:"),0,0);
+    capLay->addWidget(comboCanRx,0,1);
+    capLay->addWidget(new QLabel("Nominal bitrate:"),1,0);
+    capLay->addWidget(editCanBitrate,1,1);
+    capLay->addWidget(new QLabel("Sample point (%):"),2,0);
+    capLay->addWidget(editSamplePoint,2,1);
     gbCap->setLayout(capLay);
 
     auto *gbCtrl = new QGroupBox("Controls");
@@ -93,11 +73,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     left->addWidget(gbCtrl);
     left->addStretch();
 
-    auto *gbRaw = new QGroupBox("Raw HEX");
-    auto *rawLay = new QVBoxLayout();
-    rawLay->addWidget(txtRaw);
-    gbRaw->setLayout(rawLay);
-
     auto *gbCan = new QGroupBox("CAN Frames");
     auto *canLay = new QVBoxLayout();
     canLay->addWidget(tblCan);
@@ -109,8 +84,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     gbLog->setLayout(logLay);
 
     auto *right = new QVBoxLayout();
-    right->addWidget(gbRaw, 2);
-    right->addWidget(gbCan, 2);
+    right->addWidget(gbCan, 3);
     right->addWidget(gbLog, 1);
 
     auto *central = new QWidget();
@@ -122,30 +96,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     connect(btnStart, &QPushButton::clicked, this, &MainWindow::onStart);
     connect(btnStop,  &QPushButton::clicked, this, &MainWindow::onStop);
-
-    onModeChanged(comboMode->currentIndex());
 }
 
 MainWindow::~MainWindow() {
     onStop();
 }
 
-MainWindow::Mode MainWindow::mode() const {
-    return comboMode->currentIndex() == 1 ? Mode::CanDecode : Mode::RawHex;
-}
-
-void MainWindow::onModeChanged(int idx) {
-    bool isCan = (idx==1);
-    listChannels->setEnabled(!isCan);
-    comboCanRx->setEnabled(isCan);
-    editCanBitrate->setEnabled(isCan);
-    editSamplePoint->setEnabled(isCan);
-}
-
 void MainWindow::onStart() {
     btnStart->setEnabled(false);
     btnStop->setEnabled(true);
-    txtRaw->clear();
     txtLog->clear();
     tblCan->setRowCount(0);
 
@@ -157,29 +116,15 @@ void MainWindow::onStart() {
     worker->setDeviceDriver(editDriver->text().trimmed());
     worker->setSamplerate(editSamplerate->text().trimmed().toULongLong());
     worker->setLimitSamples(spinSamples->value());
-
-    if (mode() == Mode::RawHex) {
-        QStringList chs;
-        for (int i=0;i<listChannels->count();++i) {
-            if (listChannels->item(i)->checkState()==Qt::Checked)
-                chs << listChannels->item(i)->text();
-        }
-        worker->setChannels(chs);
-        worker->setCanMode(false);
-    } else {
-        worker->setChannels(QStringList() << comboCanRx->currentText());
-        worker->setCanMode(true);
-        worker->setCanParams(comboCanRx->currentText(),
-                             editCanBitrate->text().trimmed().toUInt(),
-                             editSamplePoint->text().trimmed().toDouble());
-    }
+    worker->setChannels(QStringList() << comboCanRx->currentText());
+    worker->setCanParams(editCanBitrate->text().trimmed().toUInt(),
+                         editSamplePoint->text().trimmed().toDouble());
 
     workerThread = new QThread(this);
     worker->moveToThread(workerThread);
 
     connect(workerThread, &QThread::started, worker, &SigrokWorker::start);
     connect(worker, &SigrokWorker::finished, this, &MainWindow::onFinished);
-    connect(worker, &SigrokWorker::rawLineReady, this, &MainWindow::onRawLine);
     connect(worker, &SigrokWorker::canFrameReady, this, &MainWindow::onCanFrame);
     connect(worker, &SigrokWorker::logMsg, this, &MainWindow::onLog);
 
@@ -200,10 +145,6 @@ void MainWindow::onStop() {
         workerThread = nullptr;
         worker = nullptr;
     }
-}
-
-void MainWindow::onRawLine(const QString &line) {
-    txtRaw->append(line);
 }
 
 void MainWindow::onCanFrame(const CanFrame &f) {

@@ -34,11 +34,9 @@ public:
     void setSamplerate(uint64_t sr_hz);
     void setLimitSamples(uint64_t n);
     void setChannels(const QStringList &chs);
-    void setCanMode(bool enable);
-    void setCanParams(const QString &rxCh, uint32_t nominal_bitrate, double sample_point = 80.0);
+    void setCanParams(uint32_t nominal_bitrate, double sample_point = 80.0);
 
 signals:
-    void rawLineReady(const QString &line);
     void canFrameReady(const CanFrame &f);
     void logMsg(const QString &msg);
     void finished(int code);
@@ -63,9 +61,6 @@ private:
     uint64_t samplerate_ = 10'000'000;
     uint64_t limitSamples_ = 1'000'000;
     QStringList enabledChs_ = {"CH0"};
-
-    bool canMode_ = false;
-    QString canRx_ = "CH0";
     uint32_t canNominalBitrate_ = 500000;
     double canSamplePoint_ = 80.0;
 
