@@ -19,15 +19,19 @@ INCLUDEPATH += $$MSYS2_PREFIX/include
 INCLUDEPATH += $$MSYS2_PREFIX/include/glib-2.0
 INCLUDEPATH += $$MSYS2_PREFIX/lib/glib-2.0/include
 
-LIBS += -L$$MSYS2_PREFIX/lib \
-        -lsigrok \
-        -lglib-2.0 -lgobject-2.0 \
-        -lusb-1.0 -lsetupapi -lws2_32 \
-        -lzip -lz -lwinpthread
+# Avoid linking against MSYS2 runtime libraries that conflict with Qt's MinGW
+# Only link the specific libraries we need from MSYS2, not the entire lib directory
+LIBS += $$MSYS2_PREFIX/lib/libsigrok.dll.a \
+        $$MSYS2_PREFIX/lib/libglib-2.0.dll.a \
+        $$MSYS2_PREFIX/lib/libgobject-2.0.dll.a \
+        $$MSYS2_PREFIX/lib/libusb-1.0.dll.a \
+        -lsetupapi -lws2_32 \
+        $$MSYS2_PREFIX/lib/libzip.dll.a \
+        -lz
 
 # Enable libsigrokdecode by defining ENABLE_SRD in your build.
 contains(DEFINES, ENABLE_SRD) {
-    LIBS += -lsigrokdecode
+    LIBS += $$MSYS2_PREFIX/lib/libsigrokdecode.dll.a
 }
 
 SOURCES += \
