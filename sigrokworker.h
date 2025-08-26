@@ -10,10 +10,20 @@
 
 #include <glib.h>
 
-#include <glib.h>
+/*
+ * Libsigrokdecode is optional.  By default the build excludes any decoder
+ * integration, but defining ENABLE_SRD when compiling enables the CAN
+ * decoding paths and pulls in libsigrokdecode headers.
+ */
+#ifndef ENABLE_SRD
+#define NO_SRD
+#endif
+
 extern "C" {
 #include <libsigrok/libsigrok.h>
+#ifndef NO_SRD
 #include <libsigrokdecode/libsigrokdecode.h>
+#endif
 }
 
 struct CanFrame {
@@ -52,7 +62,7 @@ private:
                            const struct sr_datafeed_packet *packet, void *cb_data);
     void handleLogicPacket(const struct sr_datafeed_logic *logic);
 
-#ifdef SRD_HEADER
+#ifndef NO_SRD
     void srdInitIfNeeded();
     void srdFeed(const struct sr_datafeed_logic *logic);
     static void srdAnnCb(const struct srd_decoder *dec, struct srd_proto_data *pdata, void *user);
@@ -75,9 +85,8 @@ private:
     struct sr_session *sr_sess_ = nullptr;
     struct sr_dev_inst *sdi_ = nullptr;
 
-#ifdef SRD_HEADER
+#ifndef NO_SRD
     struct srd_session *srd_sess_ = nullptr;
-    const struct srd_decoder *srd_can_dec_ = nullptr;
     struct srd_decoder_inst *srd_can_inst_ = nullptr;
 #endif
 

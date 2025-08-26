@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(test:*)",
+      "Bash(pacman:*)",
+      "Bash(gcc:*)",
+      "Bash(where gcc)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
