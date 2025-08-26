@@ -87,7 +87,6 @@ private:
 
 #ifndef NO_SRD
     struct srd_session *srd_sess_ = nullptr;
-    const struct srd_decoder *srd_can_dec_ = nullptr;
     struct srd_decoder_inst *srd_can_inst_ = nullptr;
 #endif
 

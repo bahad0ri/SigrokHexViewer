@@ -2,6 +2,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QThread>
+#include <type_traits>
 
 SigrokWorker::SigrokWorker(QObject *parent) : QObject(parent) {}
 SigrokWorker::~SigrokWorker() { stop(); }
@@ -26,15 +27,23 @@ void SigrokWorker::start() {
     }
     sr_ctx_ = ctx;
 
-    // Driver list (libsigrok >=0.6 uses a NULL terminated array)
-    struct sr_dev_driver **drivers = sr_driver_list(sr_ctx_);
+    using DriverListType = decltype(sr_driver_list(static_cast<sr_context*>(nullptr)));
+    DriverListType drivers = sr_driver_list(sr_ctx_);
     struct sr_dev_driver *drv = nullptr;
     if (drivers) {
-        for (struct sr_dev_driver **d = drivers; *d; ++d) {
-            if (driverName_ == QString::fromUtf8((*d)->name)) { drv = *d; break; }
+        if constexpr (std::is_same_v<DriverListType, GSList*>) {
+            for (GSList *l = drivers; l; l = l->next) {
+                auto *d = static_cast<struct sr_dev_driver*>(l->data);
+                if (driverName_ == QString::fromUtf8(d->name)) { drv = d; break; }
+            }
+            g_slist_free(drivers);
+        } else {
+            for (DriverListType d = drivers; *d; ++d) {
+                if (driverName_ == QString::fromUtf8((*d)->name)) { drv = *d; break; }
+            }
+            g_free(drivers);
         }
     }
-    g_free(drivers);
     if (!drv) {
         emit logMsg("Driver not found: " + driverName_);
         sr_exit(ctx);
@@ -44,7 +53,17 @@ void SigrokWorker::start() {
     }
 
     // Scan
-    GSList *devs = sr_driver_scan(const_cast<struct sr_dev_driver*>(drv), nullptr);
+    GSList *devs = nullptr;
+#if 0
+    if (sr_driver_scan(const_cast<struct sr_dev_driver*>(drv), &devs, nullptr) != SR_OK || !devs) {
+        emit logMsg("No devices found for driver.");
+        sr_exit(ctx);
+        sr_ctx_ = nullptr;
+        emit finished(-3);
+        return;
+    }
+#else
+    devs = sr_driver_scan(const_cast<struct sr_dev_driver*>(drv), nullptr);
     if (!devs) {
         emit logMsg("No devices found for driver.");
         sr_exit(ctx);
@@ -52,6 +71,7 @@ void SigrokWorker::start() {
         emit finished(-3);
         return;
     }
+#endif
     sdi_ = static_cast<struct sr_dev_inst*>(devs->data);
     g_slist_free(devs);
 
@@ -225,25 +245,28 @@ void SigrokWorker::srdInitIfNeeded() {
         return;
     }
     srd_decoder_load_all();
-    srd_can_dec_ = srd_decoder_by_id("can");
-    if (!srd_can_dec_) {
-        emit logMsg("CAN decoder not found in libsigrokdecode.");
-        canMode_ = false;
-        return;
-    }
-    if (srd_inst_new(&srd_can_inst_, srd_can_dec_, srd_sess_) != SRD_OK) {
+    srd_can_inst_ = srd_inst_new(srd_sess_, "can", nullptr);
+    if (!srd_can_inst_) {
         emit logMsg("srd_inst_new failed; CAN decode disabled.");
         canMode_ = false;
         return;
     }
-    srd_inst_option_set(srd_can_inst_, "nominal_bitrate", canNominalBitrate_);
-    srd_inst_option_set(srd_can_inst_, "sample_point", canSamplePoint_);
+    // Set decoder options.
+    GHashTable *opts = g_hash_table_new(g_str_hash, g_str_equal);
+    g_hash_table_insert(opts, (gpointer)"nominal_bitrate", g_variant_new_uint64(canNominalBitrate_));
+    g_hash_table_insert(opts, (gpointer)"sample_point", g_variant_new_double(canSamplePoint_));
+    srd_inst_option_set(srd_can_inst_, opts);
+    g_hash_table_destroy(opts);
 
-    srd_probe_new(srd_sess_, SRD_PROBE_LOGIC, 0, "can_rx");
-    srd_inst_channel_set(srd_can_inst_, "can_rx", 0);
+#ifdef SRD_OUTPUT_LOGIC
+    srd_session_probe_new(srd_sess_, SRD_OUTPUT_LOGIC, 0, "can_rx");
+    GHashTable *chmap = g_hash_table_new(g_str_hash, g_str_equal);
+    g_hash_table_insert(chmap, g_strdup("can_rx"), g_variant_new_int32(0));
+    srd_inst_channel_set_all(srd_can_inst_, chmap);
+    g_hash_table_destroy(chmap);
+#endif
 
-    srd_session_data_callback_set(srd_sess_, &SigrokWorker::srdAnnCb, this);
-    srd_session_samplerate_set(srd_sess_, samplerate_);
+    srd_session_datafeed_callback_add(srd_sess_, &SigrokWorker::srdAnnCb, this);
 }
 
 void SigrokWorker::srdFeed(const struct sr_datafeed_logic *logic) {
@@ -270,38 +293,12 @@ void SigrokWorker::srdFeed(const struct sr_datafeed_logic *logic) {
     }
     if (bitpos) packed.append(char(acc));
 
-    srd_session_send(srd_sess_, SRD_PROTO_DATA_LOGIC, 0,
+    srd_session_send(srd_sess_, SRD_OUTPUT_LOGIC, 0,
                      reinterpret_cast<const uint8_t*>(packed.constData()), packed.size());
 }
 
 void SigrokWorker::srdAnnCb(const struct srd_decoder*, struct srd_proto_data *pdata, void *user) {
-    auto *self = static_cast<SigrokWorker*>(user);
-    if (!self || !pdata || pdata->ann == nullptr) return;
-
-    QString txt = QString::fromUtf8(reinterpret_cast<const char*>(pdata->ann->text));
-
-    static const QRegExp rx1("id=0x([0-9A-Fa-f]+)\\s+ext=([01]|true|false)\\s+dlc=([0-8])\\s+data=([0-9A-Fa-f]{2}(?:\\s+[0-9A-Fa-f]{2}){0,7})");
-    static const QRegExp rx2("id[:=]\\s*0x?([0-9A-Fa-f]+)\\s+dlc[:=]\\s*([0-8]).*?\\b([0-9A-Fa-f]{2}(?:\\s+[0-9A-Fa-f]{2}){0,7})");
-
-    CanFrame f;
-    f.timeStr = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
-
-    if (rx1.indexIn(txt) >= 0) {
-        f.id = "0x" + rx1.cap(1).toUpper();
-        const QString ext = rx1.cap(2).toLower();
-        f.ide = (ext == "1" || ext == "true") ? "ext" : "std";
-        f.dlc = rx1.cap(3).toInt();
-        f.data = rx1.cap(4).simplified().toUpper();
-        self->canFrameReady(f);
-        return;
-    }
-    if (rx2.indexIn(txt) >= 0) {
-        f.id = "0x" + rx2.cap(1).toUpper();
-        f.ide = "std";
-        f.dlc = rx2.cap(2).toInt();
-        f.data = rx2.cap(3).simplified().toUpper();
-        self->canFrameReady(f);
-        return;
-    }
+    Q_UNUSED(pdata);
+    Q_UNUSED(user);
 }
 #endif
