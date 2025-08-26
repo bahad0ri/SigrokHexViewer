@@ -14,9 +14,8 @@ void SigrokWorker::setDeviceDriver(const QString &drv) { driverName_ = drv; }
 void SigrokWorker::setSamplerate(uint64_t sr) { samplerate_ = sr; }
 void SigrokWorker::setLimitSamples(uint64_t n) { limitSamples_ = n; }
 void SigrokWorker::setChannels(const QStringList &chs) { enabledChs_ = chs; }
-void SigrokWorker::setCanMode(bool e) { canMode_ = e; }
-void SigrokWorker::setCanParams(const QString &rxCh, uint32_t nominal_bitrate, double sample_point) {
-    canRx_ = rxCh; canNominalBitrate_ = nominal_bitrate; canSamplePoint_ = sample_point;
+void SigrokWorker::setCanParams(uint32_t nominal_bitrate, double sample_point) {
+    canNominalBitrate_ = nominal_bitrate; canSamplePoint_ = sample_point;
 }
 
 void SigrokWorker::start() {
@@ -178,64 +177,34 @@ void SigrokWorker::datafeedCb(const struct sr_dev_inst*,
 void SigrokWorker::handleLogicPacket(const struct sr_datafeed_logic *logic) {
     if (!logic || !logic->data || logic->length == 0) return;
 
-    const uint8_t *buf = static_cast<const uint8_t*>(logic->data);
-    const size_t nbytes = logic->length;
     if (logic->unitsize != 1) {
         emit logMsg("Unexpected unitsize != 1; skipping.");
         return;
     }
 
 #ifdef SRD_HEADER
-    if (canMode_) {
-        srdFeed(logic);
-    }
+    srdFeed(logic);
 #endif
-
-    for (int chIdx : activeLogicIdx_) {
-        QString line = QString("CH%1: ").arg(chIdx);
-        uint8_t acc = 0;
-        int bitpos = 0;
-        for (size_t i = 0; i < nbytes; ++i) {
-            const uint8_t v = buf[i];
-            const uint8_t bit = (v >> chIdx) & 0x1;
-            acc |= (bit & 0x1) << bitpos;
-            bitpos++;
-            if (bitpos == 8) {
-                line += QString("%1 ").arg(acc, 2, 16, QLatin1Char('0')).toUpper();
-                bitpos = 0;
-                acc = 0;
-            }
-        }
-        if (bitpos != 0) {
-            line += QString("%1 ").arg(acc, 2, 16, QLatin1Char('0')).toUpper();
-        }
-        emit rawLineReady(line.trimmed());
-    }
 }
 
 #ifdef SRD_HEADER
 void SigrokWorker::srdInitIfNeeded() {
-    if (!canMode_) return;
     if (srd_init(nullptr) != SRD_OK) {
         emit logMsg("srd_init failed; CAN decode disabled.");
-        canMode_ = false;
         return;
     }
     if (srd_session_new(&srd_sess_) != SRD_OK) {
         emit logMsg("srd_session_new failed; CAN decode disabled.");
-        canMode_ = false;
         return;
     }
     srd_decoder_load_all();
     srd_can_dec_ = srd_decoder_by_id("can");
     if (!srd_can_dec_) {
         emit logMsg("CAN decoder not found in libsigrokdecode.");
-        canMode_ = false;
         return;
     }
     if (srd_inst_new(&srd_can_inst_, srd_can_dec_, srd_sess_) != SRD_OK) {
         emit logMsg("srd_inst_new failed; CAN decode disabled.");
-        canMode_ = false;
         return;
     }
     srd_inst_option_set(srd_can_inst_, "nominal_bitrate", canNominalBitrate_);
