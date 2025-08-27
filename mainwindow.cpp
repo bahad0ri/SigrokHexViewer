@@ -17,7 +17,7 @@ static QStringList allCh() {
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     editDriver = new QLineEdit("kingst-la2016");
-    editSamplerate = new QLineEdit("10000000"); // 10 MHz
+    editSamplerate = new QLineEdit("1000000"); // 10 MHz
     spinSamples = new QSpinBox();
     spinSamples->setRange(1, 1000000000);
     spinSamples->setValue(1000000);
