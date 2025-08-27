@@ -1,3 +1,7 @@
+# When switching between MinGW 32-bit and 64-bit kits,
+# use a separate build directory or clean the existing
+# build directory before rebuilding to avoid architecture
+# mismatches.
 QT       += core gui
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += core gui widgets
