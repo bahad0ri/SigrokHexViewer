@@ -1,24 +1,9 @@
-QT       += core gui
-
-greaterThan(QT_MAJOR_VERSION, 4): QT += core gui widgets
-
+QT += core gui widgets
 CONFIG += c++17
-
 TEMPLATE = app
 TARGET = SigrokHexViewer
 
-INCLUDEPATH += C:/msys64/mingw64/include
-INCLUDEPATH += C:/msys64/mingw64/include/glib-2.0
-INCLUDEPATH += C:/msys64/mingw64/lib/glib-2.0/include
-
-LIBS += -LC:/msys64/mingw64/lib \
-        -lsigrok \
-        -lsigrokdecode \
-        -lglib-2.0 -lgobject-2.0 \
-        -lusb-1.0 -lsetupapi -lws2_32 \
-        -lzip -lz -lwinpthread
-
-DEFINES += SRD_HEADER
+MSYS2_PREFIX = C:/msys64/mingw64
 
 SOURCES += \
     main.cpp \
@@ -28,3 +13,21 @@ SOURCES += \
 HEADERS += \
     mainwindow.h \
     sigrokworker.h
+
+FORMS += mainwindow.ui
+
+INCLUDEPATH += \
+    $$MSYS2_PREFIX/include \
+    $$MSYS2_PREFIX/include/glib-2.0 \
+    $$MSYS2_PREFIX/lib/glib-2.0/include
+
+LIBS += -L$$MSYS2_PREFIX/lib \
+        -lsigrok \
+        -lglib-2.0 -lgobject-2.0 -lgio-2.0 -lintl \
+        -lusb-1.0 -lserialport \
+        -lzip -lz \
+        -lws2_32 -lsetupapi -lwinmm
+
+contains(DEFINES, ENABLE_SRD) {
+    LIBS += -lsigrokdecode
+}
